@@ -21,6 +21,7 @@ class Network(Model):
         self.B = B
         self.C = C
         self.output_channel = self.B * 5 + self.C  # B * 5 + C
+        self.output_layer = OutputLayer(S, B, C)
         self.network = Sequential()
 
     def build_network(self):
@@ -53,10 +54,44 @@ class Network(Model):
         self.network.add(Conv2D(1024, (3, 3), strides=(2, 2), padding='same', activation=tf.nn.leaky_relu))
         self.network.add(Conv2D(1024, (3, 3), padding='same', activation=tf.nn.leaky_relu))
         self.network.add(Conv2D(1024, (3, 3), padding='same', activation=tf.nn.leaky_relu))
-        self.network.add(Conv2D(self.output_channel, (3, 3), padding='same', activation=tf.nn.sigmoid))
+        self.network.add(Flatten())
+        self.network.add(Dense(self.S * self.S * self.output_channel, activation=tf.nn.leaky_relu))
+        self.network.add(self.output_layer)
 
         return self.network
 
+
+class OutputLayer(Model):
+    def __init__(self, S, B, C):
+        super().__init__()
+        self.S = S
+        self.B = B
+        self.C = C
+
+    def call(self, inputs, training=None, mask=None):
+        """
+        :param inputs: (Batch, S * S * (B * 5 + C))
+        :return:
+        """
+
+        # Reshape input to (Batch, S, S, B * 5 + C)
+        inputs = tf.reshape(inputs, (-1, self.S, self.S, self.B * 5 + self.C))
+
+        # pre bbox (Batch, S, S, 8)
+        pre_bbox = inputs[:, :, :, 0:self.B * 4]
+        pre_bbox = tf.nn.sigmoid(pre_bbox)
+
+        # confidence (Batch, S, S, 2)
+        conf = inputs[:, :, :, self.B * 4: self.B * 4 + self.B]
+        conf = tf.nn.sigmoid(conf)
+
+        # class prob (Batch, S, S, 20)
+        class_prob = inputs[:, :, :,  self.B * 5::]
+        class_prob = tf.nn.softmax(class_prob)
+
+        output = tf.concat([pre_bbox, conf, class_prob], axis=3)
+
+        return output
 
 # model = Network().build_network()
 #
